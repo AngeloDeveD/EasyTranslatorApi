@@ -14,11 +14,12 @@ type GameCard struct {
 
 // Подробная информация об игре
 type GameInfo struct {
-	ID             int             `json:"id" gorm:"primaryKey;autoIncrement"`
-	Title          string          `json:"title"`
-	IconUrl        string          `json:"iconUrl"`
-	SteamAppID     int64           `json:"steamAppId" gorm:"index"`
-	TranslateCards []TranslateCard `json:"translateCards" gorm:"foreignKey:GameInfoID"`
+	ID               int             `json:"id" gorm:"primaryKey;autoIncrement"`
+	Title            string          `json:"title"`
+	IconUrl          string          `json:"iconUrl"`
+	SteamAppID       int64           `json:"steamAppId" gorm:"index"`
+	SteamDeckCommand string          `json:"steamDeckCommand"`
+	TranslateCards   []TranslateCard `json:"translateCards" gorm:"foreignKey:GameInfoID"`
 }
 
 // Инфонрмация о переводе
@@ -47,8 +48,9 @@ type DetailedGameFiles struct {
 }
 
 type CreateGameRequest struct {
-	Title      string `form:"Title" binding:"required"`
-	SteamAppID int64  `form:"steamAppId"`
+	Title            string `form:"Title" binding:"required"`
+	SteamAppID       int64  `form:"steamAppId"`
+	SteamDeckCommand string `form:"steamDeckCommand"`
 }
 
 type CreateTraslateRequest struct {

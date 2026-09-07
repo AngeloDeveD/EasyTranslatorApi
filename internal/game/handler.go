@@ -33,11 +33,12 @@ type ScanTrigger interface {
 
 // Структура хэндлера
 type PublicGameInfo struct {
-	ID           int                        `json:"id"`
-	Title        string                     `json:"title"`
-	IconUrl      string                     `json:"iconUrl"`
-	SteamAppID   int64                      `json:"steamAppId"`
-	Translations []PublicTranslationSummary `json:"translations"`
+	ID               int                        `json:"id"`
+	Title            string                     `json:"title"`
+	IconUrl          string                     `json:"iconUrl"`
+	SteamAppID       int64                      `json:"steamAppId"`
+	SteamDeckCommand string                     `json:"steamDeckCommand"`
+	Translations     []PublicTranslationSummary `json:"translations"`
 }
 
 type PublicTranslationSummary struct {
@@ -138,7 +139,7 @@ func toPublicGameInfo(game GameInfo) PublicGameInfo {
 			DownloadUrl:  "/download/" + strconv.Itoa(card.ID),
 		})
 	}
-	return PublicGameInfo{ID: game.ID, Title: game.Title, IconUrl: game.IconUrl, SteamAppID: game.SteamAppID, Translations: translations}
+	return PublicGameInfo{ID: game.ID, Title: game.Title, IconUrl: game.IconUrl, SteamAppID: game.SteamAppID, SteamDeckCommand: game.SteamDeckCommand, Translations: translations}
 }
 
 type GameHandler struct {
@@ -395,11 +396,12 @@ func (h *GameHandler) AddGame(c *gin.Context) {
 
 	//Создание полной информации об игре
 	info := GameInfo{
-		ID:             gameID,
-		Title:          req.Title,
-		IconUrl:        image_big_url,
-		SteamAppID:     req.SteamAppID,
-		TranslateCards: []TranslateCard{},
+		ID:               gameID,
+		Title:            req.Title,
+		IconUrl:          image_big_url,
+		SteamAppID:       req.SteamAppID,
+		SteamDeckCommand: req.SteamDeckCommand,
+		TranslateCards:   []TranslateCard{},
 	}
 
 	err = h.Repo.CreateNewGame(card, info)
@@ -410,11 +412,12 @@ func (h *GameHandler) AddGame(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":         "Успешно создано",
-		"title":           req.Title,
-		"big_image_url":   image_big_url,
-		"small_image_url": image_small_url,
-		"gameId":          gameID,
+		"message":          "Успешно создано",
+		"title":            req.Title,
+		"big_image_url":    image_big_url,
+		"small_image_url":  image_small_url,
+		"gameId":           gameID,
+		"steamDeckCommand": req.SteamDeckCommand,
 	})
 }
 
