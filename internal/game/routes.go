@@ -10,6 +10,7 @@ func SetupGameRoutes(router *gin.Engine, handler *GameHandler, authHandler gin.H
 	{
 		public.GET("/cards", handler.GetCards)
 		public.GET("/games", handler.GetGames)
+		public.GET("/games/gsgi/:gameTitle", handler.GetSteamGameId)
 		public.GET("/games/:gameid", handler.GetGameById)
 		public.GET("/download/:transid", handler.DownloadGameTranslation)
 	}

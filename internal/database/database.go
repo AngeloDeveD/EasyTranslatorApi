@@ -45,6 +45,7 @@ func ConnectDB(cfg *config.Config) (*gorm.DB, error) {
 		&game.GameCard{},
 		&game.GameInfo{},
 		&game.TranslateCard{},
+		&game.SteamGameCache{},
 		&notification.Notification{},
 		&chat.ChatMessage{},
 	)

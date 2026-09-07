@@ -1,10 +1,13 @@
 package game
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"net/http"
@@ -18,8 +21,11 @@ import (
 // ScanTrigger отправляет загруженный архив на антивирусную проверку.
 // Интерфейс держим в пакете game, чтобы не завязываться на пакет scanner
 // напрямую (и легко подменять заглушкой в тестах).
-const maxTranslationUploadBodyBytes = 5<<30 + 10<<20
-const maxGameImageUploadBodyBytes = 12 << 20
+
+const (
+	maxTranslationUploadBodyBytes = 5<<30 + 10<<20
+	maxGameImageUploadBodyBytes   = 12 << 20
+)
 
 type ScanTrigger interface {
 	Scan(transID int, fileURL string)
@@ -30,6 +36,7 @@ type PublicGameInfo struct {
 	ID           int                        `json:"id"`
 	Title        string                     `json:"title"`
 	IconUrl      string                     `json:"iconUrl"`
+	SteamAppID   int64                      `json:"steamAppId"`
 	Translations []PublicTranslationSummary `json:"translations"`
 }
 
@@ -42,6 +49,76 @@ type PublicTranslationSummary struct {
 	FileSize     float64   `json:"fileSize"`
 	CreatedAt    time.Time `json:"createdAt"`
 	DownloadUrl  string    `json:"downloadUrl"`
+}
+
+type storeSearchResponse struct {
+	Total int         `json:"total"`
+	Items []storeItem `json:"items"`
+}
+
+type storeItem struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+	ID   int64  `json:"id"`
+}
+
+var (
+	nonAlnum = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+
+	httpClient = &http.Client{Timeout: 10 * time.Second}
+)
+
+// Принимает название игры и приводит к единому стилю
+func normalizeGameTitle(title string) string {
+	return strings.ToLower(strings.TrimSpace(nonAlnum.ReplaceAllString(title, " ")))
+}
+
+func searchSteamGame(title string) ([]storeItem, error) {
+	//Отправка запроса на стим для получение id игры
+	req, err := http.NewRequest(http.MethodGet,
+		"https://store.steampowered.com/api/storesearch", nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	q := req.URL.Query()
+	q.Set("term", normalizeGameTitle(title))
+	q.Set("l", "english")
+	q.Set("cc", "US")
+	req.URL.RawQuery = q.Encode()
+
+	//На случай если стим рубит запросы без хэдера
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	//Отправка запроса
+	resp, err := httpClient.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	//Проверка на полученный статус стима
+	if resp.StatusCode != http.StatusOK {
+
+		err := fmt.Sprintf("Steam вернул статус: %d", resp.StatusCode)
+		return nil, errors.New(err)
+	}
+
+	var data storeSearchResponse
+
+	//Расшифровка json
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	if len(data.Items) > 1 {
+		data.Items = data.Items[:1]
+	}
+
+	return data.Items, nil
 }
 
 func toPublicGameInfo(game GameInfo) PublicGameInfo {
@@ -61,7 +138,7 @@ func toPublicGameInfo(game GameInfo) PublicGameInfo {
 			DownloadUrl:  "/download/" + strconv.Itoa(card.ID),
 		})
 	}
-	return PublicGameInfo{ID: game.ID, Title: game.Title, IconUrl: game.IconUrl, Translations: translations}
+	return PublicGameInfo{ID: game.ID, Title: game.Title, IconUrl: game.IconUrl, SteamAppID: game.SteamAppID, Translations: translations}
 }
 
 type GameHandler struct {
@@ -90,6 +167,51 @@ func normalizeGameFile(game *GameInfo) {
 			game.TranslateCards[i].GameFiles = []DetailedGameFiles{}
 		}
 	}
+}
+
+// GET /games/gsgi/:gameTitle
+// Получение id игры со стима для отображения виждета на странице
+func (h *GameHandler) GetSteamGameId(c *gin.Context) {
+	gameSteamTitle := c.Param("gameTitle")
+	if gameSteamTitle == "" {
+
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Не полученые данные об игре"})
+		return
+	}
+
+	//Проверка игры в хэше для избежания постоянных запросов
+	gameInfo, err := h.Repo.FindSteamGameCache(gameSteamTitle)
+
+	if err != nil {
+		if !errors.Is(err, ErrSteamGameCacheMiss) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось проверить кэш Steam"})
+			return
+		}
+
+		items, err := searchSteamGame(gameSteamTitle)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if len(items) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ничего не найдено"})
+			return
+		}
+
+		gameInfo = SteamGameInfo{
+			Title: items[0].Name,
+			ID:    items[0].ID,
+		}
+
+		if err := h.Repo.SaveSteamGameCache(gameSteamTitle, gameInfo); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить кэш Steam"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gameInfo)
 }
 
 // Проверка id перевода и игры
@@ -161,10 +283,6 @@ func (h *GameHandler) GetGameById(c *gin.Context) {
 /*Устанавливаем архив файла с переводом*/
 func (h *GameHandler) DownloadGameTranslation(c *gin.Context) {
 	transid, err := CheckGameIdForNumValue(c.Param("transid"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Некорректный ID перевода"})
@@ -280,6 +398,7 @@ func (h *GameHandler) AddGame(c *gin.Context) {
 		ID:             gameID,
 		Title:          req.Title,
 		IconUrl:        image_big_url,
+		SteamAppID:     req.SteamAppID,
 		TranslateCards: []TranslateCard{},
 	}
 

@@ -1,6 +1,8 @@
 package game
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"time"
@@ -27,6 +29,8 @@ type GameRepository interface {
 	ChangeStatusTranslation(translationId int, status string) error
 	UpdateScanResult(transID int, status string, details string) error
 	UpdateFileInfo(transId int, filesInfo []DetailedGameFiles) error
+	FindSteamGameCache(gameSteamTitle string) (SteamGameInfo, error)
+	SaveSteamGameCache(queryTitle string, game SteamGameInfo) error
 }
 
 type SqliteGameRepo struct {
@@ -34,9 +38,12 @@ type SqliteGameRepo struct {
 }
 
 type InMemoryGameRepo struct {
-	gameInfo []GameInfo
-	gameCard []GameCard
+	gameInfo       []GameInfo
+	gameCard       []GameCard
+	steamGameCache map[string]SteamGameInfo
 }
+
+var ErrSteamGameCacheMiss = errors.New("steam game cache miss")
 
 func NewSqlGameRepo(db *gorm.DB) *SqliteGameRepo {
 	return &SqliteGameRepo{db: db}
@@ -86,7 +93,42 @@ func NewInMemoryGameRepo() *InMemoryGameRepo {
 				GameId:  1,
 			},
 		},
+		steamGameCache: map[string]SteamGameInfo{},
 	}
+}
+
+func steamTitleHash(title string) string {
+	sum := sha256.Sum256([]byte(normalizeGameTitle(title)))
+	return hex.EncodeToString(sum[:])
+}
+
+func (r *SqliteGameRepo) FindSteamGameCache(gameSteamTitle string) (SteamGameInfo, error) {
+	var cached SteamGameCache
+	err := r.db.Where("query_title_hash = ?", steamTitleHash(gameSteamTitle)).First(&cached).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return SteamGameInfo{}, ErrSteamGameCacheMiss
+		}
+		return SteamGameInfo{}, err
+	}
+
+	return SteamGameInfo{
+		Title: cached.SteamTitle,
+		ID:    cached.SteamAppID,
+	}, nil
+}
+
+func (r *SqliteGameRepo) SaveSteamGameCache(queryTitle string, game SteamGameInfo) error {
+	cache := SteamGameCache{
+		QueryTitle:     queryTitle,
+		QueryTitleHash: steamTitleHash(queryTitle),
+		SteamTitle:     game.Title,
+		SteamAppID:     game.ID,
+	}
+
+	return r.db.Where(SteamGameCache{QueryTitleHash: cache.QueryTitleHash}).
+		Assign(cache).
+		FirstOrCreate(&cache).Error
 }
 
 /*Для работы с БД*/
@@ -474,4 +516,20 @@ func (r *InMemoryGameRepo) UpdateFileInfo(transID int, filesInfo []DetailedGameF
 		}
 	}
 	return errors.New("перевод не найден")
+}
+
+func (r *InMemoryGameRepo) FindSteamGameCache(gameSteamTitle string) (SteamGameInfo, error) {
+	game, ok := r.steamGameCache[steamTitleHash(gameSteamTitle)]
+	if !ok {
+		return SteamGameInfo{}, ErrSteamGameCacheMiss
+	}
+	return game, nil
+}
+
+func (r *InMemoryGameRepo) SaveSteamGameCache(queryTitle string, game SteamGameInfo) error {
+	if r.steamGameCache == nil {
+		r.steamGameCache = map[string]SteamGameInfo{}
+	}
+	r.steamGameCache[steamTitleHash(queryTitle)] = game
+	return nil
 }
