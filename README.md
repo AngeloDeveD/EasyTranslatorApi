@@ -166,6 +166,29 @@ MAIN_API_URL=http://api:8080/api/internal/scan-result
 ```
 ---
 
+## Бэкапы
+
+Бэкап PostgreSQL и загруженных переводов можно создать без остановки контейнеров:
+
+```cmd
+run.bat backup
+```
+
+```bash
+./run.sh backup
+```
+
+Скрипты создают папку `backups/<дата_и_время>/` с дампом PostgreSQL `postgres.dump`, архивом `uploads` и `manifest.txt`. По умолчанию хранятся последние 14 бэкапов, сама папка `backups/` не попадает в Git.
+
+Для восстановления PostgreSQL dump используется `pg_restore`:
+
+```bash
+docker compose cp backups/<дата_и_время>/postgres.dump db:/tmp/postgres.dump
+docker compose exec -T db pg_restore -U postgres -d translations_db --clean --if-exists /tmp/postgres.dump
+```
+
+Архив `uploads` нужно распаковать обратно в папку `uploads/` рядом с `docker-compose.yml`. Перед восстановлением production-БД сначала проверьте dump на отдельной временной БД.
+
 ## Rate Limiting
 
 API ограничивает частоту запросов in-memory внутри Go-приложения:

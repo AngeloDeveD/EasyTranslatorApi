@@ -1,4 +1,6 @@
-Copyright (c) [2026] AngeloDeveD
+MIT License
+
+Copyright (c) 2026 AngeloDeveD
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -10,8 +12,6 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
-The Software shall be used for Good, not Evil.
-
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -19,18 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-COMMONS CLAUSE AMENDMENT TO MIT LICENSE
-
-Licensor hereby grants you the rights granted under the MIT License set forth
-above, SUBJECT TO THE COMMERCIAL RESTRICTION SPECIFIED BELOW.
-
-Commercial Restriction: You may not sell, rent, or lease the Software, or 
-otherwise charge a fee for the Software, products, or services that include 
-the Software or are derived from the Software. 
-
-For the avoidance of doubt, "Commercial Restriction" includes, but is not 
-limited to, deploying the Software as a hosted service, a cloud service, 
-or an application programming interface (API) for which a fee is charged.

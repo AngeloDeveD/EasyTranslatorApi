@@ -3,25 +3,26 @@ setlocal EnableDelayedExpansion
 chcp 65001 >nul
 title Управление EasyTranslator Server
 
-:: Получаем ANSI Escape символ (ESC)
-for /f %%a in ('echo prompt $E^| cmd') do set "ESC=%%a"
-
 :: Проверка аргументов командной строки
 if "%1"=="dev" (
-    call :run_with_progress "docker compose -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)"
-    exit /b
+    call :run_compose "docker compose -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)" "docker compose -f docker-compose.yml -f docker-compose.no-av.yml"
+    exit /b !ERRORLEVEL!
 )
 if "%1"=="full" (
-    call :run_with_progress "docker compose up -d --build" "PROD (с ClamAV)"
-    exit /b
+    call :run_compose "docker compose up -d --build" "PROD (с ClamAV)" "docker compose"
+    exit /b !ERRORLEVEL!
 )
 if "%1"=="prod" (
-    call :run_with_progress "docker compose up -d --build" "PROD (с ClamAV)"
-    exit /b
+    call :run_compose "docker compose up -d --build" "PROD (с ClamAV)" "docker compose"
+    exit /b !ERRORLEVEL!
 )
 if "%1"=="stop" goto stop
 if "%1"=="reset" goto reset
 if "%1"=="logs" goto logs
+if "%1"=="backup" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\backup.ps1"
+    exit /b !ERRORLEVEL!
+)
 if "%1"=="admin" goto cli_admin
 if "%1"=="mod" goto cli_mod
 
@@ -36,6 +37,7 @@ echo  [2] Полный запуск PROD в фоне (С ClamAV, ~1 GB RAM)
 echo  [3] Остановить все контейнеры (down)
 echo  [4] Полный сброс БД (Wipe Database)
 echo  [5] Просмотр логов в реальном времени
+echo  [8] Создать бэкап PostgreSQL и uploads
 echo  ----------------------------------------------------
 echo  [6] Назначить АДМИНИСТРАТОРА (--make-admin)
 echo  [7] Назначить МОДЕРАТОРА (--make-moderator)
@@ -43,15 +45,15 @@ echo  ----------------------------------------------------
 echo  [0] Выход
 echo.
 echo ======================================================
-set /p choice="Выберите действие [0-7]: "
+set /p choice="Выберите действие [0-8]: "
 
 if "%choice%"=="1" (
-    call :run_with_progress "docker compose -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)"
+    call :run_compose "docker compose -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)" "docker compose -f docker-compose.yml -f docker-compose.no-av.yml"
     pause
     goto menu
 )
 if "%choice%"=="2" (
-    call :run_with_progress "docker compose up -d --build" "PROD (с ClamAV)"
+    call :run_compose "docker compose up -d --build" "PROD (с ClamAV)" "docker compose"
     pause
     goto menu
 )
@@ -60,89 +62,81 @@ if "%choice%"=="4" goto reset
 if "%choice%"=="5" goto logs
 if "%choice%"=="6" goto menu_admin
 if "%choice%"=="7" goto menu_mod
+if "%choice%"=="8" goto backup
 if "%choice%"=="0" exit /b
 goto menu
 
-:: === Функция запуска с анимированным ползунком на одной строке ===
-:run_with_progress
+:run_compose
 cls
 set "CMD_TO_RUN=%~1"
 set "MODE_NAME=%~2"
-set "LOG_FILE=%TEMP%\easytranslator_build.log"
-set "STATUS_FILE=%TEMP%\easytranslator_status.txt"
-
-del "%LOG_FILE%" 2>nul
-del "%STATUS_FILE%" 2>nul
+set "COMPOSE_CMD=%~3"
+set "PS_FILE=%TEMP%\easytranslator_ps.txt"
+if "%COMPOSE_CMD%"=="" set "COMPOSE_CMD=docker compose"
+del "%PS_FILE%" 2>nul
 
 echo ======================================================
 echo  [INFO] Запуск в режиме: %MODE_NAME%
 echo ======================================================
 echo.
+echo [INFO] Выполняется: %CMD_TO_RUN%
+echo.
 
-:: Запуск сборки в фоновом процессе (без лишних пробелов перед >)
-start /b "" cmd /c "(%CMD_TO_RUN%) > "%LOG_FILE%" 2>&1 & (echo %%ERRORLEVEL%%)>"%STATUS_FILE%""
+%CMD_TO_RUN%
+set "EXIT_CODE=!ERRORLEVEL!"
 
-set /a progress=5
-set "bar_total=25"
-
-:loop_progress
-if exist "%STATUS_FILE%" goto finish_progress
-
-:: Увеличиваем процент пока идет процесс
-if !progress! LSS 92 (
-    set /a progress+=3
+if not "!EXIT_CODE!"=="0" (
+    echo.
+    echo ======================================================
+    echo  [ERROR] Docker Compose завершился с кодом !EXIT_CODE!.
+    echo ======================================================
+    echo.
+    exit /b !EXIT_CODE!
 )
 
-:: Формируем строку ползунка
-set /a filled=(!progress! * bar_total) / 100
-set /a empty=bar_total - filled
-set "bar="
-for /l %%i in (1,1,!filled!) do set "bar=!bar!█"
-for /l %%i in (1,1,!empty!) do set "bar=!bar!░"
+echo.
+echo [INFO] Проверка состояния контейнеров...
+%COMPOSE_CMD% ps > "%PS_FILE%" 2>&1
+set "PS_EXIT=!ERRORLEVEL!"
+type "%PS_FILE%"
 
-:: !ESC![1G возвращает курсор в колонку 1, !ESC![2K очищает строку
-<nul set /p "=!ESC![1G!ESC![2KЗапуск контейнеров: [!bar!] !progress!%%"
-ping 127.0.0.1 -n 2 >nul
-goto loop_progress
-
-:finish_progress
-set /p EXIT_CODE=<"%STATUS_FILE%"
-del "%STATUS_FILE%" 2>nul
-
-:: Очищаем значение от возможных пробелов и символов переноса строки
-set "EXIT_CODE=!EXIT_CODE: =!"
-
-if "!EXIT_CODE!"=="0" (
-    set "bar=█████████████████████████"
-    <nul set /p "=!ESC![1G!ESC![2KЗапуск контейнеров: [!bar!] 100%%"
-    echo.
+if not "!PS_EXIT!"=="0" (
     echo.
     echo ======================================================
-    echo  [OK] Все контейнеры успешно собраны и запущены в фоне!
-    echo  API доступен по адресу: http://localhost:8080
+    echo  [ERROR] Не удалось проверить состояние контейнеров.
     echo ======================================================
-    echo.
-    del "%LOG_FILE%" 2>nul
-) else (
-    <nul set /p "=!ESC![1G!ESC![2KЗапуск контейнеров: [ ОШИБКА ]"
-    echo.
-    echo.
-    echo ======================================================
-    echo  [ERROR] Произошла ошибка при сборке/запуске!
-    echo ======================================================
-    echo.
-    if exist "%LOG_FILE%" (
-        type "%LOG_FILE%"
-        del "%LOG_FILE%" 2>nul
-    )
-    echo.
+    del "%PS_FILE%" 2>nul
+    exit /b !PS_EXIT!
 )
-exit /b
+
+findstr /i /c:"Exit" /c:"Exited" /c:"unhealthy" /c:"Restarting" /c:"Dead" "%PS_FILE%" >nul
+if not errorlevel 1 (
+    echo.
+    echo ======================================================
+    echo  [ERROR] Один или несколько контейнеров запущены с ошибкой.
+    echo ======================================================
+    del "%PS_FILE%" 2>nul
+    exit /b 1
+)
+
+del "%PS_FILE%" 2>nul
+echo.
+echo ======================================================
+echo  [OK] Все контейнеры успешно собраны и запущены в фоне!
+echo  API доступен по адресу: http://localhost:8080
+echo ======================================================
+echo.
+exit /b 0
 
 :stop
 cls
 echo [INFO] Остановка всех сервисов...
 docker compose down
+if errorlevel 1 (
+    echo [ERROR] Docker не смог остановить сервисы.
+    pause
+    goto menu
+)
 echo [OK] Все сервисы остановлены.
 pause
 goto menu
@@ -153,7 +147,11 @@ echo [ВНИМАНИЕ] Это полностью удалит все данны
 set /p confirm="Вы уверены? (y/N): "
 if /i "%confirm%"=="y" (
     docker compose down -v
-    echo [OK] База данных и тома очищены.
+    if errorlevel 1 (
+        echo [ERROR] Docker не смог очистить базу данных и тома.
+    ) else (
+        echo [OK] База данных и тома очищены.
+    )
 )
 pause
 goto menu
@@ -164,6 +162,17 @@ echo [INFO] Открытие логов (Ctrl+C для возврата)...
 docker compose logs -f
 goto menu
 
+:backup
+cls
+echo [INFO] Создание бэкапа PostgreSQL и uploads...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\backup.ps1"
+if errorlevel 1 (
+    echo [ERROR] Бэкап завершился с ошибкой.
+) else (
+    echo [OK] Бэкап успешно создан.
+)
+pause
+goto menu
 :menu_admin
 cls
 set /p uid="Введите ID пользователя для назначения АДМИНОМ: "
@@ -182,8 +191,8 @@ goto menu
 
 :cli_admin
 docker compose exec api ./myapi --make-admin %2
-exit /b
+exit /b %ERRORLEVEL%
 
 :cli_mod
 docker compose exec api ./myapi --make-moderator %2
-exit /b
+exit /b %ERRORLEVEL%

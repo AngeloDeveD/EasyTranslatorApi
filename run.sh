@@ -7,6 +7,7 @@ YELLOW="\033[1;33m"
 RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Определение команды docker compose
 if docker compose version &>/dev/null; then
@@ -18,83 +19,93 @@ else
     exit 1
 fi
 
-# Функция запуска с анимированным ползунком
-function run_with_progress() {
+function check_compose_status() {
+    local compose_cmd="$1"
+    local ps_output
+
+    echo ""
+    echo -e "${BLUE}[INFO] Проверка состояния контейнеров...${RESET}"
+
+    if ! ps_output=$(bash -c "$compose_cmd ps" 2>&1); then
+        echo "$ps_output"
+        echo -e "${RED}[ERROR] Не удалось проверить состояние контейнеров.${RESET}"
+        return 1
+    fi
+
+    echo "$ps_output"
+    if echo "$ps_output" | grep -Eiq 'Exit|Exited|unhealthy|Restarting|Dead'; then
+        echo -e "${RED}[ERROR] Один или несколько контейнеров запущены с ошибкой.${RESET}"
+        return 1
+    fi
+
+    return 0
+}
+
+function run_compose() {
     local cmd="$1"
     local mode_name="$2"
-    local log_file="/tmp/easytranslator_build.log"
+    local compose_cmd="$3"
 
-    rm -f "$log_file"
     clear
     echo -e "${BLUE}======================================================${RESET}"
     echo -e " [INFO] Запуск в режиме: ${CYAN}${mode_name}${RESET}"
     echo -e "${BLUE}======================================================${RESET}"
     echo ""
+    echo -e "${BLUE}[INFO] Выполняется:${RESET} $cmd"
+    echo ""
 
-    # Запускаем docker compose в фоне и пишем логи в файл
-    eval "$cmd" > "$log_file" 2>&1 &
-    local pid=$!
-
-    local progress=5
-    local bar_width=30
-
-    # Анимация пока фоновый процесс работает
-    while kill -0 $pid 2>/dev/null; do
-        if [ $progress -lt 92 ]; then
-            progress=$((progress + 3))
-        fi
-
-        local filled=$((progress * bar_width / 100))
-        local empty=$((bar_width - filled))
-        local bar=""
-        for ((i=0; i<filled; i++)); do bar="${bar}█"; done
-        for ((i=0; i<empty; i++)); do bar="${bar}░"; done
-
-        printf "\r${CYAN}Запуск контейнеров:${RESET} [${YELLOW}%s${RESET}] %3d%% " "$bar" "$progress"
-        sleep 0.3
-    done
-
-    # Ждем завершения и получаем код выхода
-    wait $pid
+    bash -c "$cmd"
     local exit_code=$?
 
-    if [ $exit_code -eq 0 ]; then
-        local full_bar=""
-        for ((i=0; i<bar_width; i++)); do full_bar="${full_bar}█"; done
-        printf "\r${CYAN}Запуск контейнеров:${RESET} [${GREEN}%s${RESET}] 100%%\n\n" "$full_bar"
-        echo -e "${GREEN}======================================================${RESET}"
-        echo -e "${GREEN} [OK] Все сервисы успешно собраны и запущены в фоне!  ${RESET}"
-        echo -e " API доступен: ${CYAN}http://localhost:8080${RESET}"
-        echo -e "${GREEN}======================================================${RESET}"
-        rm -f "$log_file"
-    else
-        printf "\r${CYAN}Запуск контейнеров:${RESET} [${RED} ОШИБКА ${RESET}]\n\n"
-        echo -e "${RED}======================================================${RESET}"
-        echo -e "${RED} [ERROR] Произошла ошибка при сборке/запуске!         ${RESET}"
-        echo -e "${RED}======================================================${RESET}\n"
-        if [ -f "$log_file" ]; then
-            cat "$log_file"
-            rm -f "$log_file"
-        fi
+    if [ $exit_code -ne 0 ]; then
         echo ""
+        echo -e "${RED}======================================================${RESET}"
+        echo -e "${RED} [ERROR] Docker Compose завершился с кодом ${exit_code}.${RESET}"
+        echo -e "${RED}======================================================${RESET}"
+        return $exit_code
     fi
+
+    if ! check_compose_status "$compose_cmd"; then
+        echo -e "${RED}======================================================${RESET}"
+        echo -e "${RED} [ERROR] Docker запущен с ошибкой.${RESET}"
+        echo -e "${RED}======================================================${RESET}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${GREEN}======================================================${RESET}"
+    echo -e "${GREEN} [OK] Все сервисы успешно собраны и запущены в фоне!  ${RESET}"
+    echo -e " API доступен: ${CYAN}http://localhost:8080${RESET}"
+    echo -e "${GREEN}======================================================${RESET}"
+    return 0
 }
 
 function stop_all() {
     echo -e "${YELLOW}[INFO] Остановка контейнеров...${RESET}"
-    $DOCKER_COMPOSE down
-    echo -e "${GREEN}[OK] Контейнеры остановлены.${RESET}"
+    if $DOCKER_COMPOSE down; then
+        echo -e "${GREEN}[OK] Контейнеры остановлены.${RESET}"
+    else
+        echo -e "${RED}[ERROR] Docker не смог остановить контейнеры.${RESET}"
+        return 1
+    fi
 }
 
 function reset_db() {
     echo -e "${RED}[ВНИМАНИЕ] Это действие удалит все данные из PostgreSQL!${RESET}"
     read -p "Вы уверены? (y/N): " confirm
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        $DOCKER_COMPOSE down -v
-        echo -e "${GREEN}[OK] База данных и тома удалены.${RESET}"
+        if $DOCKER_COMPOSE down -v; then
+            echo -e "${GREEN}[OK] База данных и тома удалены.${RESET}"
+        else
+            echo -e "${RED}[ERROR] Docker не смог удалить базу данных и тома.${RESET}"
+            return 1
+        fi
     fi
 }
 
+function create_backup() {
+    bash "$SCRIPT_DIR/scripts/backup.sh"
+}
 function show_logs() {
     echo -e "${BLUE}[INFO] Открытие логов. Нажмите Ctrl+C для выхода...${RESET}"
     $DOCKER_COMPOSE logs -f
@@ -123,18 +134,19 @@ function set_mod() {
 # Обработка аргументов CLI
 case "$1" in
     dev)
-        run_with_progress "$DOCKER_COMPOSE -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)"
-        exit 0
+        run_compose "$DOCKER_COMPOSE -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)" "$DOCKER_COMPOSE -f docker-compose.yml -f docker-compose.no-av.yml"
+        exit $?
         ;;
     full|prod)
-        run_with_progress "$DOCKER_COMPOSE up -d --build" "PROD (с ClamAV)"
-        exit 0
+        run_compose "$DOCKER_COMPOSE up -d --build" "PROD (с ClamAV)" "$DOCKER_COMPOSE"
+        exit $?
         ;;
-    stop) stop_all; exit 0 ;;
-    reset) reset_db; exit 0 ;;
-    logs) show_logs; exit 0 ;;
-    admin) set_admin "$2"; exit 0 ;;
-    mod|moderator) set_mod "$2"; exit 0 ;;
+    stop) stop_all; exit $? ;;
+    reset) reset_db; exit $? ;;
+    logs) show_logs; exit $? ;;
+    backup) create_backup; exit $? ;;
+    admin) set_admin "$2"; exit $? ;;
+    mod|moderator) set_mod "$2"; exit $? ;;
 esac
 
 # Главное интерактивное меню
@@ -148,21 +160,22 @@ while true; do
     echo "  [3] Остановить все контейнеры"
     echo "  [4] Полный сброс базы данных (Wipe Database)"
     echo "  [5] Просмотр логов в реальном времени"
+    echo "  [8] Создать бэкап PostgreSQL и uploads"
     echo "  ----------------------------------------------------"
     echo "  [6] Назначить АДМИНИСТРАТОРА (--make-admin)"
     echo "  [7] Назначить МОДЕРАТОРА (--make-moderator)"
     echo "  ----------------------------------------------------"
     echo "  [0] Выход"
     echo -e "${BLUE}======================================================${RESET}"
-    read -p "Выберите действие [0-7]: " choice
+    read -p "Выберите действие [0-8]: " choice
 
     case "$choice" in
         1)
-            run_with_progress "$DOCKER_COMPOSE -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)"
+            run_compose "$DOCKER_COMPOSE -f docker-compose.yml -f docker-compose.no-av.yml up -d --build" "DEV (без ClamAV)" "$DOCKER_COMPOSE -f docker-compose.yml -f docker-compose.no-av.yml"
             read -p "Нажмите Enter для возврата в меню..."
             ;;
         2)
-            run_with_progress "$DOCKER_COMPOSE up -d --build" "PROD (с ClamAV)"
+            run_compose "$DOCKER_COMPOSE up -d --build" "PROD (с ClamAV)" "$DOCKER_COMPOSE"
             read -p "Нажмите Enter для возврата в меню..."
             ;;
         3) stop_all; read -p "Нажмите Enter для возврата в меню..." ;;
@@ -170,6 +183,7 @@ while true; do
         5) show_logs ;;
         6) set_admin; read -p "Нажмите Enter для возврата в меню..." ;;
         7) set_mod; read -p "Нажмите Enter для возврата в меню..." ;;
+        8) create_backup; read -p "Нажмите Enter для возврата в меню..." ;;
         0) exit 0 ;;
         *) echo -e "${RED}Неверный выбор.${RESET}"; sleep 1 ;;
     esac
