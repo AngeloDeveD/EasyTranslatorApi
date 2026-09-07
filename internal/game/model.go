@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// Игровая карточка
 type GameCard struct {
 	ID      int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Title   string `json:"title"`
@@ -11,6 +12,7 @@ type GameCard struct {
 	GameId  int    `json:"gameId" gorm:"unique"`
 }
 
+// Подробная информация об игре
 type GameInfo struct {
 	ID             int             `json:"id" gorm:"primaryKey;autoIncrement"`
 	Title          string          `json:"title"`
@@ -18,6 +20,7 @@ type GameInfo struct {
 	TranslateCards []TranslateCard `json:"translateCards" gorm:"foreignKey:GameInfoID"`
 }
 
+// Инфонрмация о переводе
 type TranslateCard struct {
 	ID            int                 `json:"id" gorm:"primaryKey;autoIncrement"`
 	AuthorName    string              `json:"authorName"`
@@ -35,6 +38,7 @@ type TranslateCard struct {
 	CreatedAt     time.Time           `json:"createdAt"`
 }
 
+// Информация о файле, находящимся в переводе
 type DetailedGameFiles struct {
 	FileName string `json:"fileName" binding:"required"`
 	Hash     string `json:"hash" binding:"required"`
