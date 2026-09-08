@@ -159,7 +159,7 @@ goto menu
 :logs
 cls
 echo [INFO] Открываю отдельное окно выбора логов...
-start "EasyTranslator Logs" cmd /k ""%~dp0scripts\logs.bat""
+start "EasyTranslator Logs" cmd /c ""%~dp0scripts\logs.bat""
 if errorlevel 1 (
     echo [ERROR] Не удалось открыть отдельное окно логов.
 ) else (

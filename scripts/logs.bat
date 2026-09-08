@@ -47,7 +47,7 @@ if "%choice%"=="3" goto logs_db
 if "%choice%"=="4" goto logs_scanner
 if "%choice%"=="5" goto logs_clamav
 if "%choice%"=="6" goto ps
-if "%choice%"=="0" exit /b 0
+if "%choice%"=="0" exit
 goto menu
 
 :logs_all
