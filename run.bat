@@ -36,7 +36,7 @@ echo  [1] Быстрый запуск DEV в фоне (Без ClamAV, ~120 MB RA
 echo  [2] Полный запуск PROD в фоне (С ClamAV, ~1 GB RAM)
 echo  [3] Остановить все контейнеры (down)
 echo  [4] Полный сброс БД (Wipe Database)
-echo  [5] Просмотр логов в реальном времени
+echo  [5] Открыть отдельное окно выбора логов
 echo  [8] Создать бэкап PostgreSQL и uploads
 echo  ----------------------------------------------------
 echo  [6] Назначить АДМИНИСТРАТОРА (--make-admin)
@@ -158,8 +158,16 @@ goto menu
 
 :logs
 cls
-echo [INFO] Открытие логов (Ctrl+C для возврата)...
-docker compose logs -f
+echo [INFO] Открываю отдельное окно выбора логов...
+start "EasyTranslator Logs" cmd /k ""%~dp0scripts\logs.bat""
+if errorlevel 1 (
+    echo [ERROR] Не удалось открыть отдельное окно логов.
+) else (
+    echo [OK] Окно логов открыто.
+)
+echo.
+echo Это основное окно оставлено открытым.
+pause
 goto menu
 
 :backup

@@ -106,9 +106,49 @@ function reset_db() {
 function create_backup() {
     bash "$SCRIPT_DIR/scripts/backup.sh"
 }
+function open_logs_window() {
+    local log_script="$SCRIPT_DIR/scripts/logs.sh"
+
+    if [ ! -f "$log_script" ]; then
+        echo -e "${RED}[ERROR] Не найден скрипт меню логов: $log_script${RESET}"
+        return 1
+    fi
+
+    chmod +x "$log_script" 2>/dev/null || true
+
+    if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+        if command -v cygpath &>/dev/null; then
+            cmd.exe /c start "EasyTranslator Logs" bash "$(cygpath -w "$log_script")"
+        else
+            cmd.exe /c start "EasyTranslator Logs" bash "$log_script"
+        fi
+    elif command -v x-terminal-emulator &>/dev/null; then
+        x-terminal-emulator -e bash "$log_script" &
+    elif command -v gnome-terminal &>/dev/null; then
+        gnome-terminal -- bash "$log_script" &
+    elif command -v konsole &>/dev/null; then
+        konsole -e bash "$log_script" &
+    elif command -v xfce4-terminal &>/dev/null; then
+        xfce4-terminal --command "bash '$log_script'" &
+    elif command -v osascript &>/dev/null; then
+        osascript -e "tell application \"Terminal\" to do script \"cd '$SCRIPT_DIR' && bash '$log_script'\"" >/dev/null
+    else
+        echo -e "${RED}[ERROR] Не найден терминал для открытия отдельного окна.${RESET}"
+        echo "Поддерживаются x-terminal-emulator, gnome-terminal, konsole, xfce4-terminal, macOS Terminal и Git Bash/Windows."
+        return 1
+    fi
+}
+
 function show_logs() {
-    echo -e "${BLUE}[INFO] Открытие логов. Нажмите Ctrl+C для выхода...${RESET}"
-    $DOCKER_COMPOSE logs -f
+    echo -e "${BLUE}[INFO] Открываю отдельное окно выбора логов...${RESET}"
+    if open_logs_window; then
+        echo -e "${GREEN}[OK] Окно логов открыто.${RESET}"
+    else
+        echo -e "${RED}[ERROR] Не удалось открыть отдельное окно логов.${RESET}"
+    fi
+    echo ""
+    echo "Это основное окно оставлено открытым."
+    read -p "Нажмите Enter для возврата в меню..."
 }
 
 function set_admin() {
@@ -159,7 +199,7 @@ while true; do
     echo "  [2] Полный запуск PROD (С ClamAV, ~1 GB RAM)"
     echo "  [3] Остановить все контейнеры"
     echo "  [4] Полный сброс базы данных (Wipe Database)"
-    echo "  [5] Просмотр логов в реальном времени"
+    echo "  [5] Открыть отдельное окно выбора логов"
     echo "  [8] Создать бэкап PostgreSQL и uploads"
     echo "  ----------------------------------------------------"
     echo "  [6] Назначить АДМИНИСТРАТОРА (--make-admin)"

@@ -6,7 +6,6 @@ uploads/
 *.db-shm
 *.exe
 .env
-test_web/
 test_files/
 
 showDirectory.py
