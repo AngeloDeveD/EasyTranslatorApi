@@ -19,6 +19,7 @@ type GameRepository interface {
 	ArchiveHashExists(hash string) (bool, error)
 	CheckCreatedGame(int) error
 	GetGameInfoById(int) (GameInfo, error)
+	FindGameByTitle(title string) (GameInfo, error)
 	DeleteGame(gameId int) error
 	DeleteTranslation(gameId int, translationId int) error
 	GetOldRejectedTranslations(daysOld int) ([]TranslateCard, error)
@@ -43,7 +44,10 @@ type InMemoryGameRepo struct {
 	steamGameCache map[string]SteamGameInfo
 }
 
-var ErrSteamGameCacheMiss = errors.New("steam game cache miss")
+var (
+	ErrSteamGameCacheMiss = errors.New("steam game cache miss")
+	ErrGameNotFound       = errors.New("game not found")
+)
 
 func NewSqlGameRepo(db *gorm.DB) *SqliteGameRepo {
 	return &SqliteGameRepo{db: db}
@@ -153,6 +157,18 @@ func (r *SqliteGameRepo) GetTranslationByID(id int) (TranslateCard, error) {
 	return card, nil
 }
 
+func (r *SqliteGameRepo) FindGameByTitle(title string) (GameInfo, error) {
+	var gameInfo GameInfo
+	err := r.db.Where("title = ?", title).First(&gameInfo).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return GameInfo{}, ErrGameNotFound
+		}
+		return GameInfo{}, err
+	}
+
+	return gameInfo, nil
+}
 func (r *SqliteGameRepo) CreateNewGame(newGameCard GameCard, newGameInfo GameInfo) error {
 	tx := r.db.Begin()
 
@@ -398,6 +414,14 @@ func (r *InMemoryGameRepo) GetGameInfoById(gameId int) (GameInfo, error) {
 	return GameInfo{}, errors.New("Игра не найдена")
 }
 
+func (r *InMemoryGameRepo) FindGameByTitle(title string) (GameInfo, error) {
+	for _, game := range r.gameInfo {
+		if game.Title == title {
+			return game, nil
+		}
+	}
+	return GameInfo{}, ErrGameNotFound
+}
 func (r *InMemoryGameRepo) AddTranslation(gameId int, newTranslateCard TranslateCard) error {
 	status := false
 	for i := range r.gameInfo {

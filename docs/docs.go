@@ -6,7 +6,7 @@ const docTemplate = `{
   "schemes": {{ marshal .Schemes }},
   "swagger": "2.0",
   "info": {
-    "description": "Backend API for EasyTranslator: games, translations, auth, notifications, moderation, chat, and scanner callbacks.",
+    "description": "Backend API for EasyTranslator: games, translations, Steam lookup cache, auth, notifications, moderation, chat, and scanner callbacks.",
     "title": "EasyTranslator API",
     "contact": {},
     "version": "1.0"
@@ -18,6 +18,7 @@ const docTemplate = `{
       "get": {
         "summary": "Health check",
         "tags": ["System"],
+        "produces": ["text/plain"],
         "responses": { "200": { "description": "API is running" } }
       }
     },
@@ -28,7 +29,10 @@ const docTemplate = `{
         "consumes": ["application/json"],
         "produces": ["application/json"],
         "parameters": [{ "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/RegisterRequest" } }],
-        "responses": { "201": { "description": "Created" }, "400": { "description": "Bad request" } }
+        "responses": {
+          "201": { "description": "Created", "schema": { "$ref": "#/definitions/RegisterResponse" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/api/auth/login": {
@@ -38,7 +42,12 @@ const docTemplate = `{
         "consumes": ["application/json"],
         "produces": ["application/json"],
         "parameters": [{ "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/LoginRequest" } }],
-        "responses": { "200": { "description": "JWT token" }, "401": { "description": "Unauthorized" } }
+        "responses": {
+          "200": { "description": "JWT token", "schema": { "$ref": "#/definitions/LoginResponse" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "401": { "description": "Unauthorized", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "403": { "description": "Forbidden", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/api/auth/me": {
@@ -46,7 +55,11 @@ const docTemplate = `{
         "summary": "Get current user",
         "tags": ["Auth"],
         "security": [{ "BearerAuth": [] }],
-        "responses": { "200": { "description": "Current user" }, "401": { "description": "Unauthorized" } }
+        "produces": ["application/json"],
+        "responses": {
+          "200": { "description": "Current user", "schema": { "$ref": "#/definitions/MeResponse" } },
+          "401": { "description": "Unauthorized", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/cards": {
@@ -59,10 +72,24 @@ const docTemplate = `{
     },
     "/games": {
       "get": {
-        "summary": "List games with translations",
+        "summary": "List public games with approved translations",
         "tags": ["Games"],
         "produces": ["application/json"],
-        "responses": { "202": { "description": "Games", "schema": { "type": "array", "items": { "$ref": "#/definitions/GameInfo" } } } }
+        "responses": { "202": { "description": "Games", "schema": { "type": "array", "items": { "$ref": "#/definitions/PublicGameInfo" } } } }
+      }
+    },
+    "/games/gsgi/{gameTitle}": {
+      "get": {
+        "summary": "Find Steam game by title",
+        "description": "Looks up a game in the local Steam lookup cache first. On cache miss, requests Steam Store search, saves the first result, and returns Steam title plus app id.",
+        "tags": ["Steam"],
+        "produces": ["application/json"],
+        "parameters": [{ "name": "gameTitle", "in": "path", "required": true, "type": "string" }],
+        "responses": {
+          "200": { "description": "Steam game info", "schema": { "$ref": "#/definitions/SteamGameInfo" } },
+          "400": { "description": "Bad request or nothing found", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "500": { "description": "Steam request or cache error", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/games/{gameid}": {
@@ -71,28 +98,47 @@ const docTemplate = `{
         "tags": ["Games"],
         "produces": ["application/json"],
         "parameters": [{ "name": "gameid", "in": "path", "required": true, "type": "integer" }],
-        "responses": { "202": { "description": "Game", "schema": { "$ref": "#/definitions/GameInfo" } }, "400": { "description": "Bad request" } }
+        "responses": {
+          "202": { "description": "Game", "schema": { "$ref": "#/definitions/GameInfo" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       },
       "delete": {
         "summary": "Delete game",
         "tags": ["Games"],
         "security": [{ "BearerAuth": [] }],
+        "produces": ["application/json"],
         "parameters": [{ "name": "gameid", "in": "path", "required": true, "type": "integer" }],
-        "responses": { "200": { "description": "Deleted" }, "401": { "description": "Unauthorized" }, "403": { "description": "Forbidden" } }
+        "responses": {
+          "200": { "description": "Deleted", "schema": { "$ref": "#/definitions/MessageResponse" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "401": { "description": "Unauthorized", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "403": { "description": "Forbidden", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "500": { "description": "Server error", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/games/add": {
       "post": {
         "summary": "Create game",
+        "description": "Creates a game card and detailed game record. Steam AppID is optional. If a game with the same title already exists, returns 409 with status alreadycreated and existing game id.",
         "tags": ["Games"],
         "security": [{ "BearerAuth": [] }],
         "consumes": ["multipart/form-data"],
+        "produces": ["application/json"],
         "parameters": [
           { "name": "Title", "in": "formData", "required": true, "type": "string" },
+          { "name": "steamAppId", "in": "formData", "required": false, "type": "integer", "format": "int64" },
+          { "name": "steamDeckCommand", "in": "formData", "required": false, "type": "string" },
           { "name": "big_pic", "in": "formData", "required": true, "type": "file" },
           { "name": "small_pic", "in": "formData", "required": true, "type": "file" }
         ],
-        "responses": { "201": { "description": "Created" }, "400": { "description": "Bad request" } }
+        "responses": {
+          "201": { "description": "Created", "schema": { "$ref": "#/definitions/CreateGameResponse" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "409": { "description": "Game already exists", "schema": { "$ref": "#/definitions/DuplicateGameResponse" } },
+          "500": { "description": "Server error", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/games/translate/{gameid}": {
@@ -101,6 +147,7 @@ const docTemplate = `{
         "tags": ["Translations"],
         "security": [{ "BearerAuth": [] }],
         "consumes": ["multipart/form-data"],
+        "produces": ["application/json"],
         "parameters": [
           { "name": "gameid", "in": "path", "required": true, "type": "integer" },
           { "name": "file", "in": "formData", "required": true, "type": "file" },
@@ -109,7 +156,13 @@ const docTemplate = `{
           { "name": "version", "in": "formData", "type": "number", "format": "double" },
           { "name": "percentReady", "in": "formData", "type": "number", "format": "double" }
         ],
-        "responses": { "201": { "description": "Created and queued for scan" }, "400": { "description": "Bad request" } }
+        "responses": {
+          "201": { "description": "Created and queued for scan", "schema": { "$ref": "#/definitions/CreateTranslationResponse" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "401": { "description": "Unauthorized", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "409": { "description": "Duplicate archive", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "500": { "description": "Server error", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/games/translate/{transid}": {
@@ -117,8 +170,14 @@ const docTemplate = `{
         "summary": "Delete translation",
         "tags": ["Translations"],
         "security": [{ "BearerAuth": [] }],
+        "produces": ["application/json"],
         "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }],
-        "responses": { "200": { "description": "Deleted" }, "404": { "description": "Not found" } }
+        "responses": {
+          "200": { "description": "Deleted", "schema": { "$ref": "#/definitions/MessageResponse" } },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "404": { "description": "Not found", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "500": { "description": "Server error", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/download/{transid}": {
@@ -129,7 +188,13 @@ const docTemplate = `{
           { "name": "transid", "in": "path", "required": true, "type": "integer" },
           { "name": "token", "in": "query", "type": "string", "description": "Optional JWT token for browser downloads" }
         ],
-        "responses": { "200": { "description": "File" }, "403": { "description": "Forbidden" }, "404": { "description": "Not found" } }
+        "responses": {
+          "200": { "description": "File" },
+          "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "403": { "description": "Forbidden", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "404": { "description": "Not found", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "500": { "description": "Server error", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
       }
     },
     "/api/admin/users": {
@@ -137,43 +202,56 @@ const docTemplate = `{
         "summary": "List users",
         "tags": ["Admin"],
         "security": [{ "BearerAuth": [] }],
+        "produces": ["application/json"],
         "parameters": [
           { "name": "page", "in": "query", "type": "integer" },
           { "name": "limit", "in": "query", "type": "integer" }
         ],
-        "responses": { "200": { "description": "Users" }, "403": { "description": "Forbidden" } }
+        "responses": { "200": { "description": "Users" }, "403": { "description": "Forbidden", "schema": { "$ref": "#/definitions/ErrorResponse" } } }
       }
     },
-    "/api/admin/users/{userid}/block": { "patch": { "summary": "Block user", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK" } } } },
-    "/api/admin/users/{userid}/unblock": { "patch": { "summary": "Unblock user", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK" } } } },
-    "/api/admin/users/{userid}/warn": { "patch": { "summary": "Warn user", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }, { "in": "body", "name": "body", "schema": { "$ref": "#/definitions/ReasonRequest" } }], "responses": { "200": { "description": "OK" } } } },
-    "/api/admin/users/{userid}/unwarn": { "patch": { "summary": "Remove user warning", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK" } } } },
-    "/api/admin/users/{userid}/role": { "patch": { "summary": "Set user role", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }, { "in": "body", "name": "body", "schema": { "$ref": "#/definitions/RoleRequest" } }], "responses": { "200": { "description": "OK" } } } },
-    "/api/notifications": { "get": { "summary": "Get my notifications", "tags": ["Notifications"], "security": [{ "BearerAuth": [] }], "responses": { "200": { "description": "Notifications" } } } },
-    "/api/admin/notifications": { "post": { "summary": "Create notification", "tags": ["Notifications"], "security": [{ "BearerAuth": [] }], "parameters": [{ "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/NotificationRequest" } }], "responses": { "201": { "description": "Created" } } } },
-    "/api/admin/moderation": { "get": { "summary": "Get moderation queue", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "page", "in": "query", "type": "integer" }, { "name": "limit", "in": "query", "type": "integer" }], "responses": { "200": { "description": "Queue" } } } },
-    "/api/admin/moderation/{transid}/approve": { "patch": { "summary": "Approve translation", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK" } } } },
-    "/api/admin/moderation/{transid}/reject": { "patch": { "summary": "Reject translation", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }, { "in": "body", "name": "body", "schema": { "$ref": "#/definitions/ReasonRequest" } }], "responses": { "200": { "description": "OK" } } } },
-    "/api/admin/moderation/{transid}/change-status/{status}": { "patch": { "summary": "Change translation status", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }, { "name": "status", "in": "path", "required": true, "type": "string" }], "responses": { "200": { "description": "OK" } } } },
-    "/api/chat/history/{userId}": { "get": { "summary": "Get chat history", "tags": ["Chat"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userId", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "Messages" } } } },
-    "/api/chat/ws": { "get": { "summary": "Chat WebSocket", "tags": ["Chat"], "security": [{ "BearerAuth": [] }], "responses": { "101": { "description": "Switching Protocols" } } } },
-    "/api/internal/scan-result": { "post": { "summary": "Scanner callback", "tags": ["Internal"], "security": [{ "InternalKeyAuth": [] }], "parameters": [{ "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/ScanResultRequest" } }], "responses": { "200": { "description": "Accepted" }, "400": { "description": "Bad request" }, "403": { "description": "Forbidden" } } } }
+    "/api/admin/users/{userid}/block": { "patch": { "summary": "Block user", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/admin/users/{userid}/unblock": { "patch": { "summary": "Unblock user", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/admin/users/{userid}/warn": { "patch": { "summary": "Warn user", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }, { "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/ReasonRequest" } }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/admin/users/{userid}/unwarn": { "patch": { "summary": "Remove user warning", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/admin/users/{userid}/role": { "patch": { "summary": "Set user role", "tags": ["Admin"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "userid", "in": "path", "required": true, "type": "integer" }, { "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/RoleRequest" } }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/notifications": { "get": { "summary": "Get my notifications", "tags": ["Notifications"], "security": [{ "BearerAuth": [] }], "produces": ["application/json"], "responses": { "200": { "description": "Notifications" }, "401": { "description": "Unauthorized", "schema": { "$ref": "#/definitions/ErrorResponse" } } } } },
+    "/api/admin/notifications": { "post": { "summary": "Create notification", "tags": ["Notifications"], "security": [{ "BearerAuth": [] }], "consumes": ["application/json"], "produces": ["application/json"], "parameters": [{ "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/NotificationRequest" } }], "responses": { "201": { "description": "Created", "schema": { "$ref": "#/definitions/MessageResponse" } }, "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } } } } },
+    "/api/admin/moderation": { "get": { "summary": "Get moderation queue", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "produces": ["application/json"], "parameters": [{ "name": "page", "in": "query", "type": "integer" }, { "name": "limit", "in": "query", "type": "integer" }], "responses": { "200": { "description": "Queue" } } } },
+    "/api/admin/moderation/{transid}/approve": { "patch": { "summary": "Approve translation", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/admin/moderation/{transid}/reject": { "patch": { "summary": "Reject translation", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }, { "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/ReasonRequest" } }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/admin/moderation/{transid}/change-status/{status}": { "patch": { "summary": "Change translation status", "tags": ["Moderation"], "security": [{ "BearerAuth": [] }], "parameters": [{ "name": "transid", "in": "path", "required": true, "type": "integer" }, { "name": "status", "in": "path", "required": true, "type": "string", "enum": ["pending_scan", "approved", "rejected", "error"] }], "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/MessageResponse" } } } } },
+    "/api/chat/history/{userId}": { "get": { "summary": "Get chat history", "tags": ["Chat"], "security": [{ "BearerAuth": [] }], "produces": ["application/json"], "parameters": [{ "name": "userId", "in": "path", "required": true, "type": "integer" }], "responses": { "200": { "description": "Messages" } } } },
+    "/api/chat/ws": { "get": { "summary": "Chat WebSocket", "tags": ["Chat"], "parameters": [{ "name": "token", "in": "query", "type": "string", "description": "JWT token for browser WebSocket clients" }], "responses": { "101": { "description": "Switching Protocols" } } } },
+    "/api/internal/scan-result": { "post": { "summary": "Scanner callback", "tags": ["Internal"], "security": [{ "InternalKeyAuth": [] }], "consumes": ["application/json"], "produces": ["application/json"], "parameters": [{ "in": "body", "name": "body", "required": true, "schema": { "$ref": "#/definitions/ScanResultRequest" } }], "responses": { "200": { "description": "Accepted" }, "400": { "description": "Bad request", "schema": { "$ref": "#/definitions/ErrorResponse" } }, "403": { "description": "Forbidden", "schema": { "$ref": "#/definitions/ErrorResponse" } } } } }
   },
   "securityDefinitions": {
     "BearerAuth": { "type": "apiKey", "name": "Authorization", "in": "header", "description": "JWT token in format: Bearer <token>" },
     "InternalKeyAuth": { "type": "apiKey", "name": "X-Internal-Key", "in": "header" }
   },
   "definitions": {
-    "RegisterRequest": { "type": "object", "properties": { "firstName": { "type": "string" }, "lastName": { "type": "string" }, "nickname": { "type": "string" }, "password": { "type": "string" } } },
-    "LoginRequest": { "type": "object", "properties": { "nickname": { "type": "string" }, "password": { "type": "string" } } },
-    "ReasonRequest": { "type": "object", "properties": { "reason": { "type": "string" } } },
-    "RoleRequest": { "type": "object", "properties": { "role": { "type": "string", "example": "moderation" } } },
-    "NotificationRequest": { "type": "object", "properties": { "title": { "type": "string" }, "message": { "type": "string" }, "isGlobal": { "type": "boolean" }, "userId": { "type": "integer" } } },
+    "ErrorResponse": { "type": "object", "properties": { "error": { "type": "string" } } },
+    "MessageResponse": { "type": "object", "properties": { "message": { "type": "string" } } },
+    "RegisterRequest": { "type": "object", "required": ["firstName", "lastName", "nickname", "password"], "properties": { "firstName": { "type": "string" }, "lastName": { "type": "string" }, "nickname": { "type": "string" }, "password": { "type": "string" } } },
+    "RegisterResponse": { "type": "object", "properties": { "message": { "type": "string" }, "userId": { "type": "integer" } } },
+    "LoginRequest": { "type": "object", "required": ["nickname", "password"], "properties": { "nickname": { "type": "string" }, "password": { "type": "string" } } },
+    "LoginResponse": { "type": "object", "properties": { "token": { "type": "string" }, "user": { "$ref": "#/definitions/LoginUser" } } },
+    "LoginUser": { "type": "object", "properties": { "id": { "type": "integer" }, "nickname": { "type": "string" }, "role": { "type": "string" } } },
+    "MeResponse": { "type": "object", "properties": { "message": { "type": "string" }, "userId": { "type": "integer" }, "role": { "type": "string" } } },
+    "ReasonRequest": { "type": "object", "required": ["reason"], "properties": { "reason": { "type": "string" } } },
+    "RoleRequest": { "type": "object", "required": ["role"], "properties": { "role": { "type": "string", "example": "moderator", "enum": ["author", "moderator", "admin"] } } },
+    "NotificationRequest": { "type": "object", "required": ["title", "message"], "properties": { "title": { "type": "string" }, "message": { "type": "string" }, "isGlobal": { "type": "boolean" }, "userId": { "type": "integer" } } },
     "GameCard": { "type": "object", "properties": { "id": { "type": "integer" }, "title": { "type": "string" }, "iconUrl": { "type": "string" }, "gameId": { "type": "integer" } } },
-    "GameInfo": { "type": "object", "properties": { "id": { "type": "integer" }, "title": { "type": "string" }, "iconUrl": { "type": "string" }, "steamAppId": { "type": "integer" }, "steamDeckCommand": { "type": "string" }, "translateCards": { "type": "array", "items": { "$ref": "#/definitions/TranslateCard" } } } },
-    "TranslateCard": { "type": "object", "properties": { "id": { "type": "integer" }, "authorName": { "type": "string" }, "authoreId": { "type": "integer" }, "source": { "type": "string" }, "version": { "type": "number" }, "percentReady": { "type": "number" }, "urlToDownload": { "type": "string" }, "fileSize": { "type": "number" }, "status": { "type": "string" }, "scanDetails": { "type": "string" }, "gameFiles": { "type": "array", "items": { "$ref": "#/definitions/DetailedGameFile" } }, "createdAt": { "type": "string", "format": "date-time" } } },
+    "SteamGameInfo": { "type": "object", "properties": { "title": { "type": "string" }, "id": { "type": "integer", "format": "int64", "description": "Steam AppID" } } },
+    "PublicGameInfo": { "type": "object", "properties": { "id": { "type": "integer" }, "title": { "type": "string" }, "iconUrl": { "type": "string" }, "steamAppId": { "type": "integer", "format": "int64" }, "steamDeckCommand": { "type": "string" }, "translations": { "type": "array", "items": { "$ref": "#/definitions/PublicTranslationSummary" } } } },
+    "PublicTranslationSummary": { "type": "object", "properties": { "id": { "type": "integer" }, "authorName": { "type": "string" }, "source": { "type": "string" }, "version": { "type": "number", "format": "double" }, "percentReady": { "type": "number", "format": "double" }, "fileSize": { "type": "number", "format": "double" }, "createdAt": { "type": "string", "format": "date-time" }, "downloadUrl": { "type": "string" } } },
+    "GameInfo": { "type": "object", "properties": { "id": { "type": "integer" }, "title": { "type": "string" }, "iconUrl": { "type": "string" }, "steamAppId": { "type": "integer", "format": "int64" }, "steamDeckCommand": { "type": "string" }, "translateCards": { "type": "array", "items": { "$ref": "#/definitions/TranslateCard" } } } },
+    "CreateGameResponse": { "type": "object", "properties": { "message": { "type": "string" }, "title": { "type": "string" }, "big_image_url": { "type": "string" }, "small_image_url": { "type": "string" }, "gameId": { "type": "integer" }, "steamDeckCommand": { "type": "string" } } },
+    "DuplicateGameResponse": { "type": "object", "properties": { "status": { "type": "string", "example": "alreadycreated" }, "gameId": { "type": "integer" }, "id": { "type": "integer" }, "title": { "type": "string" } } },
+    "TranslateCard": { "type": "object", "properties": { "id": { "type": "integer" }, "authorName": { "type": "string" }, "authoreId": { "type": "integer" }, "source": { "type": "string" }, "version": { "type": "number", "format": "double" }, "percentReady": { "type": "number", "format": "double" }, "urlToDownload": { "type": "string" }, "archiveHash": { "type": "string" }, "fileSize": { "type": "number", "format": "double" }, "status": { "type": "string", "enum": ["pending_scan", "approved", "rejected", "error"] }, "scanDetails": { "type": "string" }, "gameFiles": { "type": "array", "items": { "$ref": "#/definitions/DetailedGameFile" } }, "createdAt": { "type": "string", "format": "date-time" } } },
+    "CreateTranslationResponse": { "type": "object", "properties": { "message": { "type": "string" }, "urlToDownload": { "type": "string" }, "FileSize": { "type": "number", "format": "double" }, "AuthorName": { "type": "string" }, "Source": { "type": "string" }, "PercentReady": { "type": "number", "format": "double" }, "id": { "type": "integer" } } },
     "DetailedGameFile": { "type": "object", "properties": { "fileName": { "type": "string" }, "hash": { "type": "string" }, "size": { "type": "string" } } },
-    "ScanResultRequest": { "type": "object", "properties": { "transId": { "type": "integer" }, "status": { "type": "string", "example": "approved" }, "details": { "type": "string" }, "threats": { "type": "array", "items": { "type": "string" } }, "error": { "type": "string" }, "files": { "type": "array", "items": { "$ref": "#/definitions/DetailedGameFile" } } } }
+    "ScanResultRequest": { "type": "object", "properties": { "transId": { "type": "integer" }, "status": { "type": "string", "example": "approved", "enum": ["approved", "rejected", "error"] }, "details": { "type": "string" }, "threats": { "type": "array", "items": { "type": "string" } }, "error": { "type": "string" }, "files": { "type": "array", "items": { "$ref": "#/definitions/DetailedGameFile" } } } }
   }
 }`
 

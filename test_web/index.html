@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EasyTranslator API Console</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Local API console</p>
+      <h1>EasyTranslator API</h1>
+    </div>
+    <div class="topbar-actions">
+      <span id="serverStatus" class="pill neutral">server: unknown</span>
+      <span id="authStatus" class="pill off">token: empty</span>
+      <button id="healthBtn" class="btn secondary" type="button">GET /</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section class="panel compact">
+        <div class="panel-head">
+          <h2>Auth</h2>
+          <button id="logoutBtn" class="btn ghost small" type="button">Clear</button>
+        </div>
+        <div class="token-box">
+          <span id="tokenPreview">No token</span>
+          <button id="copyTokenBtn" class="btn ghost small" type="button">Copy</button>
+        </div>
+
+        <form data-action="login" class="stack">
+          <label>Nickname
+            <input id="login_nickname" autocomplete="username" value="ivan" />
+          </label>
+          <label>Password
+            <input id="login_password" type="password" autocomplete="current-password" value="123456" />
+          </label>
+          <button class="btn primary" type="submit">Login</button>
+        </form>
+
+        <details>
+          <summary>Register</summary>
+          <form data-action="register" class="stack nested-form">
+            <label>First name <input id="reg_firstName" value="Иван" /></label>
+            <label>Last name <input id="reg_lastName" value="Петров" /></label>
+            <label>Nickname <input id="reg_nickname" value="ivan" /></label>
+            <label>Password <input id="reg_password" type="password" value="123456" /></label>
+            <button class="btn secondary" type="submit">Register</button>
+          </form>
+        </details>
+
+        <div class="button-row">
+          <button class="btn secondary" data-action="me" type="button">GET /me</button>
+          <a class="btn link" href="/swagger/index.html" target="_blank" rel="noreferrer">Swagger</a>
+        </div>
+      </section>
+
+      <nav class="nav panel compact" aria-label="API sections">
+        <button class="nav-item active" data-tab-target="games" type="button">Games</button>
+        <button class="nav-item" data-tab-target="translations" type="button">Translations</button>
+        <button class="nav-item" data-tab-target="admin" type="button">Admin</button>
+        <button class="nav-item" data-tab-target="chat" type="button">Chat</button>
+        <button class="nav-item" data-tab-target="raw" type="button">Raw request</button>
+      </nav>
+    </aside>
+
+    <main class="workspace">
+      <section id="tab-games" class="tab-panel active">
+        <div class="panel-head main-head">
+          <div>
+            <p class="eyebrow">Steam lookup and create flow</p>
+            <h2>Games</h2>
+          </div>
+          <div class="button-row">
+            <button class="btn secondary" data-action="getCards" type="button">GET /cards</button>
+            <button class="btn secondary" data-action="getGames" type="button">GET /games</button>
+          </div>
+        </div>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Find Steam AppID</h3>
+            <code>GET /games/gsgi/:gameTitle</code>
+          </div>
+          <form data-action="steamLookup" class="grid-form two">
+            <label>Search title
+              <input id="steam_query" value="Portal 2" />
+            </label>
+            <button class="btn primary align-end" type="submit">Find</button>
+          </form>
+          <div id="steamResult" class="result-strip muted">No Steam result selected</div>
+        </section>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Create game</h3>
+            <code>POST /games/add</code>
+          </div>
+          <form data-action="addGame" class="grid-form two">
+            <label>Title
+              <input id="add_title" value="Portal 2" />
+            </label>
+            <label>Steam AppID optional
+              <input id="add_steamAppId" type="number" inputmode="numeric" placeholder="620" />
+            </label>
+            <label class="span-2">Steam Deck command
+              <input id="add_steamDeckCommand" placeholder="mangohud %command%" />
+            </label>
+            <label>Big image
+              <input id="add_bigPic" type="file" accept="image/png,image/jpeg,image/webp" />
+            </label>
+            <label>Small image
+              <input id="add_smallPic" type="file" accept="image/png,image/jpeg,image/webp" />
+            </label>
+            <button class="btn primary span-2" type="submit">Create game</button>
+          </form>
+        </section>
+
+        <section class="split">
+          <div class="endpoint">
+            <div class="endpoint-head">
+              <h3>Game by ID</h3>
+              <code>GET /games/:id</code>
+            </div>
+            <form data-action="getGameById" class="inline-form">
+              <input id="game_id" type="number" value="1" />
+              <button class="btn secondary" type="submit">Fetch</button>
+            </form>
+            <div id="gameView" class="data-view empty">No game loaded</div>
+          </div>
+
+          <div class="endpoint danger-zone">
+            <div class="endpoint-head">
+              <h3>Delete game</h3>
+              <code>DELETE /games/:id</code>
+            </div>
+            <form data-action="deleteGame" class="inline-form">
+              <input id="del_gameId" type="number" value="1" />
+              <button class="btn danger" type="submit">Delete</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Latest lists</h3>
+            <code>/cards /games</code>
+          </div>
+          <div id="gamesView" class="data-view empty">No list loaded</div>
+        </section>
+      </section>
+
+      <section id="tab-translations" class="tab-panel">
+        <div class="panel-head main-head">
+          <div>
+            <p class="eyebrow">Upload, download, moderation status</p>
+            <h2>Translations</h2>
+          </div>
+        </div>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Upload archive</h3>
+            <code>POST /games/translate/:gameid</code>
+          </div>
+          <form data-action="translate" class="grid-form two">
+            <label>Game ID
+              <input id="tr_gameId" type="number" value="1" />
+            </label>
+            <label>Archive
+              <input id="tr_file" type="file" accept=".zip,.rar,.7z,.7zip" />
+            </label>
+            <label>Author name
+              <input id="tr_authorName" value="Переводчик" />
+            </label>
+            <label>Source
+              <input id="tr_source" value="Manual build" />
+            </label>
+            <label>Version
+              <input id="tr_version" type="number" step="0.01" value="1.0" />
+            </label>
+            <label>Ready percent
+              <input id="tr_percentReady" type="number" step="0.1" min="0" max="100" value="100" />
+            </label>
+            <button class="btn primary span-2" type="submit">Upload translation</button>
+          </form>
+        </section>
+
+        <section class="split">
+          <div class="endpoint">
+            <div class="endpoint-head">
+              <h3>Download</h3>
+              <code>GET /download/:transid</code>
+            </div>
+            <form data-action="download" class="inline-form">
+              <input id="dl_translId" type="number" value="1" />
+              <button class="btn secondary" type="submit">Open</button>
+            </form>
+          </div>
+
+          <div class="endpoint danger-zone">
+            <div class="endpoint-head">
+              <h3>Delete translation</h3>
+              <code>DELETE /games/translate/:transid</code>
+            </div>
+            <form data-action="deleteTranslation" class="inline-form">
+              <input id="del_tr_transId" type="number" value="1" />
+              <button class="btn danger" type="submit">Delete</button>
+            </form>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-admin" class="tab-panel">
+        <div class="panel-head main-head">
+          <div>
+            <p class="eyebrow">Admin and moderator routes</p>
+            <h2>Admin</h2>
+          </div>
+        </div>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Users</h3>
+            <code>GET /api/admin/users</code>
+          </div>
+          <form data-action="getUsers" class="inline-form">
+            <input id="users_page" type="number" value="1" min="1" />
+            <input id="users_limit" type="number" value="20" min="1" max="100" />
+            <button class="btn secondary" type="submit">Fetch users</button>
+          </form>
+          <div id="usersView" class="data-view empty">No users loaded</div>
+        </section>
+
+        <section class="split">
+          <div class="endpoint">
+            <div class="endpoint-head">
+              <h3>User actions</h3>
+              <code>PATCH /api/admin/users/:id</code>
+            </div>
+            <div class="stack">
+              <input id="admin_userId" type="number" value="1" />
+              <div class="button-row">
+                <button class="btn secondary" data-action="blockUser" type="button">Block</button>
+                <button class="btn secondary" data-action="unblockUser" type="button">Unblock</button>
+                <button class="btn secondary" data-action="unwarnUser" type="button">Unwarn</button>
+              </div>
+              <input id="warn_reason" value="Нарушение правил" />
+              <button class="btn secondary" data-action="warnUser" type="button">Warn</button>
+              <select id="role_value">
+                <option value="author">author</option>
+                <option value="moderator">moderator</option>
+                <option value="admin">admin</option>
+              </select>
+              <button class="btn secondary" data-action="setRole" type="button">Set role</button>
+            </div>
+          </div>
+
+          <div class="endpoint">
+            <div class="endpoint-head">
+              <h3>Notifications</h3>
+              <code>/api/notifications</code>
+            </div>
+            <div class="stack">
+              <button class="btn secondary" data-action="getNotifications" type="button">My notifications</button>
+              <input id="notif_title" value="Важное" />
+              <textarea id="notif_message" rows="3">Тестовое уведомление</textarea>
+              <label class="check-row"><input id="notif_isGlobal" type="checkbox" checked /> Global</label>
+              <input id="notif_userId" type="number" value="0" />
+              <button class="btn primary" data-action="createNotification" type="button">Create notification</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Moderation</h3>
+            <code>/api/admin/moderation</code>
+          </div>
+          <div class="grid-form two">
+            <label>Page <input id="mod_page" type="number" value="1" min="1" /></label>
+            <label>Limit <input id="mod_limit" type="number" value="20" min="1" max="100" /></label>
+            <button class="btn secondary" data-action="getModeration" type="button">Fetch queue</button>
+            <label>Translation ID <input id="mod_transId" type="number" value="1" /></label>
+            <label>Status
+              <select id="mod_status">
+                <option value="pending_scan">pending_scan</option>
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+                <option value="error">error</option>
+              </select>
+            </label>
+            <div class="button-row align-end">
+              <button class="btn secondary" data-action="approve" type="button">Approve</button>
+              <button class="btn secondary" data-action="changeStatus" type="button">Change status</button>
+            </div>
+            <label class="span-2">Reject reason
+              <input id="mod_reason" value="Плохое качество" />
+            </label>
+            <button class="btn danger span-2" data-action="reject" type="button">Reject</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-chat" class="tab-panel">
+        <div class="panel-head main-head">
+          <div>
+            <p class="eyebrow">WebSocket</p>
+            <h2>Chat</h2>
+          </div>
+          <span id="chatStatus" class="pill off">disconnected</span>
+        </div>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Connection</h3>
+            <code>WS /api/chat/ws?token=...</code>
+          </div>
+          <div class="button-row">
+            <button class="btn primary" data-action="chatConnect" type="button">Connect</button>
+            <button class="btn secondary" data-action="chatDisconnect" type="button">Disconnect</button>
+          </div>
+        </section>
+
+        <section class="split">
+          <div class="endpoint">
+            <div class="endpoint-head">
+              <h3>Send</h3>
+              <code>socket.send</code>
+            </div>
+            <div class="stack">
+              <input id="chat_to" type="number" value="1" />
+              <input id="chat_text" value="Привет" />
+              <button class="btn primary" data-action="chatSend" type="button">Send</button>
+            </div>
+          </div>
+          <div class="endpoint">
+            <div class="endpoint-head">
+              <h3>History</h3>
+              <code>GET /api/chat/history/:userId</code>
+            </div>
+            <form data-action="chatHistory" class="inline-form">
+              <input id="chat_historyId" type="number" value="1" />
+              <button class="btn secondary" type="submit">Fetch</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="endpoint wide">
+          <div class="endpoint-head">
+            <h3>Messages</h3>
+            <code>live</code>
+          </div>
+          <pre id="chatBox" class="console slim"></pre>
+        </section>
+      </section>
+
+      <section id="tab-raw" class="tab-panel">
+        <div class="panel-head main-head">
+          <div>
+            <p class="eyebrow">Manual HTTP request</p>
+            <h2>Raw Request</h2>
+          </div>
+        </div>
+        <section class="endpoint wide">
+          <form data-action="rawRequest" class="stack">
+            <div class="inline-form raw-line">
+              <select id="raw_method">
+                <option>GET</option>
+                <option>POST</option>
+                <option>PATCH</option>
+                <option>DELETE</option>
+              </select>
+              <input id="raw_path" value="/games" />
+            </div>
+            <textarea id="raw_body" rows="10" spellcheck="false">{
+  "reason": "test"
+}</textarea>
+            <button class="btn primary" type="submit">Send raw request</button>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <aside class="activity panel compact">
+      <div class="panel-head">
+        <h2>Activity</h2>
+        <button id="clearLog" class="btn ghost small" type="button">Clear</button>
+      </div>
+      <pre id="log" class="console"></pre>
+    </aside>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -342,6 +342,27 @@ func (h *GameHandler) AddGame(c *gin.Context) {
 		return
 	}
 
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Название игры не может быть пустым"})
+		return
+	}
+
+	existingGame, err := h.Repo.FindGameByTitle(req.Title)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"status": "alreadycreated",
+			"gameId": existingGame.ID,
+			"id":     existingGame.ID,
+			"title":  existingGame.Title,
+		})
+		return
+	}
+	if !errors.Is(err, ErrGameNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось проверить существование игры"})
+		return
+	}
+
 	//Получение большой и маленькой картинки
 	big_pic, err := c.FormFile("big_pic")
 	if err != nil {

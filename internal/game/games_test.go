@@ -125,6 +125,26 @@ func TestAddGames(t *testing.T) {
 	})
 }
 
+func TestAddGame_DuplicateTitle(t *testing.T) {
+	r := setupTestRouter()
+
+	var requestBody bytes.Buffer
+	multiWriter := multipart.NewWriter(&requestBody)
+	_ = multiWriter.WriteField("Title", "Игра номер 1")
+	assert.NoError(t, multiWriter.Close())
+
+	req, err := http.NewRequest(http.MethodPost, "/games/add", &requestBody)
+	assert.NoError(t, err)
+	req.Header.Set("Content-Type", multiWriter.FormDataContentType())
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "alreadycreated")
+	assert.Contains(t, w.Body.String(), "\"gameId\":1")
+}
+
 // Добавление игры, но картинки много весят
 func TestAddGames_MultipleFiles_HeavyFiles(t *testing.T) {
 	r := setupTestRouter()
